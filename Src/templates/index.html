@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>AlphaStream 控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 flex items-center justify-center h-screen">
+    <div class="bg-gray-800 p-10 rounded-xl shadow-2xl w-[28rem] text-center border border-gray-700">
+        <h1 class="text-3xl font-bold text-white mb-2">AlphaStream</h1>
+        <p class="text-gray-400 mb-8 font-mono text-sm">Quantitative Engine Cloud Console</p>
+
+        <form id="pipeline-form" class="flex flex-col space-y-5">
+            <input type="email" name="email" id="email-input" required placeholder="输入接收投资报告的 Email..."
+                   class="px-4 py-3 bg-gray-900 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
+
+            <button type="submit" id="submit-btn"
+                    class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-lg tracking-widest">
+                RUN PIPELINE
+            </button>
+        </form>
+        <p id="status-msg" class="mt-4 text-sm hidden"></p>
+    </div>
+
+    <script>
+        document.getElementById('pipeline-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submit-btn');
+            const status = document.getElementById('status-msg');
+            const email = document.getElementById('email-input').value;
+
+            btn.disabled = true;
+            btn.textContent = 'RUNNING...';
+            status.classList.add('hidden');
+
+            const formData = new FormData();
+            formData.append('email', email);
+
+            try {
+                const res = await fetch('/run-pipeline', { method: 'POST', body: formData });
+                const data = await res.json();
+                status.textContent = data.message || (data.success ? '任务已提交！' : '执行失败');
+                status.className = 'mt-4 text-sm ' + (data.success ? 'text-green-400' : 'text-red-400');
+                status.classList.remove('hidden');
+            } catch (err) {
+                status.textContent = '网络错误: ' + err.message;
+                status.className = 'mt-4 text-sm text-red-400';
+                status.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'RUN PIPELINE';
+            }
+        });
+    </script>
+</body>
+</html>
