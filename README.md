@@ -98,3 +98,26 @@ python Src/app.py   # http://localhost:8080
 | Optimization | ⚠️ AI-assisted, refactoring |
 | REST API | ⚠️ AI-generated |
 | Email automation | ⚠️ AI-generated |
+
+---
+
+## 📚 配套文档（学习 & 完善指南）
+
+> 以下三份文档是**外部评审 + 教学视角**的补充材料（不是原作者的内容），按「先懂是什么 → 再学怎么学 → 最后怎么改」的顺序阅读最佳。
+
+| 文档 | 用途 | 面向谁 |
+|---|---|---|
+| **[QUANT_RESEARCH_GUIDE.md](QUANT_RESEARCH_GUIDE.md)** | Quant Research 的**九阶段工作流程 + 四梯队学习路线 + 知识地图**（含"会不会用到随机过程/时间序列"的明确回答） | 想系统入门量化的你 |
+| **[OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md)** | 把项目从"原型"补成"研究级"的**详细落地执行清单**，分 P0（让结论可信）→ P1（真风险模型）→ P2（工程交付），每项锚定到真实代码行 | 准备动手完善的你（quant researcher 视角） |
+| **[WEB_ARCHITECTURE_SOP.md](WEB_ARCHITECTURE_SOP.md)** | 一般软件**前后端交互的通用范式 + 可勾选 SOP**，含内联请求-响应流程图 | 想弄清"网页和后端怎么对话"的你 |
+
+**推荐阅读路径**
+
+```
+1. 先读 QUANT_RESEARCH_GUIDE.md  → 建立"量化研究长什么样"的全景
+2. 再看本 README 的 Pipeline / Status → 对照"AlphaStream 现在卡在哪"
+3. 想动手 → 打开 OPTIMIZATION_PLAN.md 按 P0→P2 顺序改
+4. 疑惑"前端怎么触发后端" → 翻 WEB_ARCHITECTURE_SOP.md
+```
+
+**一句话现状**：AlphaStream 是"会跑、架构对、但结论不可信"的教育级原型。三份文档分别回答**学什么 / 怎么改 / 怎么连**，配合原 README 即可完整上手。
