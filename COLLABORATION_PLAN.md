@@ -7,37 +7,37 @@
 >
 > 本文档：① 对"数据够不够用"的回答（可直接转发 Kani）；② **详细协调手册**——X 契约精确规格、双方代码骨架、分阶段时间表、git 流程、接口防错。
 
+> ⚠️ **市场变更（2026-07-26）**：原项目基于港股（`hk_market_raw.parquet`，字段薄）。经评估，因子构建改用 **Bloomberg `USE4` 美股模板**（SPX 503 只，日频 2024–2025，字段齐全且 point-in-time 友好）。下文所有口径（Ticker 格式、因子定义、股票池、话术）已同步切到美股；方法学 / X 契约 / 架构不变。
+
 ---
 
 ## 一、给 Kani 的回答：数据够不够用？
 
-**结论：原始数据量足够，但瓶颈不在"行数"，而在"字段广度"和"怎么切分使用"。**
+**结论：换成 Bloomberg `USE4` 美股模板后，字段广度已不再是瓶颈——市值 / PB / 盈利收益率 / 行业 / 成长 / 杠杆全部齐备，且 point-in-time 内建；剩下的真实约束只剩「2 年样本偏短」和「依赖 BBG 终端刷新」。**
 
-### 1. 数据现状（已核实）
+### 1. 数据现状（已核实，USE4 美股模板）
 | 项 | 实际情况 |
 |---|---|
-| 体量 | `hk_market_raw.parquet` ≈ 44 万行，区间 **2022–2025**（约 3–4 年日频） |
-| 字段 | 仅 `PX_LAST`(价) / `CUR_MKT_CAP`(市值) / `PE_RATIO`(市盈率) / `PX_VOLUME`(量) |
-| 股票池 | 因子模型用**全市场截面**（每天 ≥50 只）；优化器却**硬编码只取 10 只手选股** |
-| 时点性 | PE 用 `shift(60)`（≈3 个月滞后）近似，非真·point-in-time |
+| 来源 | Bloomberg `USE4` 批量拉数模板（Bloomberg 时间序列，逐证券独立公式） |
+| 范围 | `SPX Index`，**503 只美股**，日频，**2024-01-01 → 2025-12-31**（约 2 年） |
+| Prices | 每券 `[日期, PX_LAST]`，共 503×2 列 → Momentum / Volatility / Beta 可由价格派生 |
+| Descriptors | 每券块 8 字段：`CUR_MKT_CAP`(市值) / `PX_TO_BOOK_RATIO`(PB) / `EARN_YLD`(盈利收益率) / `VOLUME` / `BETA_ADJ_OVERRIDABLE` / `SALES_GROWTH` / `EPS_GROWTH` / `TOT_DEBT_TO_COM_EQY`(杠杆) |
+| 行业 | `Industries` 页给 GICS 三级分类（行业中性化 / 行业哑变量可用） |
+| 时点性 | Descriptor 每个观测**自带生效日期**（财报期），天然 point-in-time，无需 `shift(60)` 近似 |
 
 ### 2. 真正的缺口（按重要性排序）
-- **字段太薄**：目前只能稳建 **size(市值) + value(PE) + 一个 volume 代理 + momentum(可由价格派生)**。要做 Barra 风格风险模型，还缺：
-  - `PB` / 账面价值、盈利(EPS/ROE)、股息率 → 价值与质量因子必需；
-  - **行业分类** → Barra 风险模型的核心维度（行业哑变量）；
-  - 更多风格因子（quality / low-vol 需要盈利或波动率序列）。
-- **股票池被提前切成 10 只**：这是最致命的。Barra 协方差 `Σ = X·F·X' + D` 必须在**全市场**上估计因子协方差 `F` 和特异方差 `D`。10 只手选股（且是"妖股/压舱石"叙事筛选）既样本太小、又有选择偏差，**撑不起风险模型**。→ **数据层必须保留全市场，10 只的切片交给组合层决定，不要提前切**。
-- **时点性只是近似**：`shift(60)` 是粗暴代理。严谨做法是用公告日对齐的 point-in-time 基本面，或至少验证 60 天滞后无前视泄漏。这一点对 Zeon 的因子 IC 和 Kani 的风险模型都同样重要。
-- **协方差需收缩**：即便用全市场，3–4 年日频对几十上百只股票仍偏短，样本协方差噪声大 → 必须用 **Ledoit-Wolf 收缩**（这正是 Zeon 的因子暴露 与 Kani 的风险模型交汇之处）。
+- **样本只有 2 年（2024–2025）**：因子 IC/IR、walk-forward 回测偏薄（通常想要 5–10 年）。做学习原型、跑通 X **够**；要严谨结论需把 `history_start` 往前扩或改 `PERIOD='M'`。→ 见 §2.4 Phase 0 与 Phase 2.5。
+- **依赖 BBG 终端刷新**：模板数值来自一次拉取，换日期/标的需在 Bloomberg Excel `Ctrl+Alt+F` 刷新。刷新不了则数据冻结在 2024–2025、503 只（仍够原型）。
+- **Quality（盈利/ROE）暂缺**：Descriptor 无 ROE/ROA/净利率，真·质量因子做不了。可暂缓，或日后补拉 `RETURN_ON_EQUITY` 等字段。其余维度（价值/成长/杠杆/规模/波动/流动/动量/行业）均已覆盖。
+- **协方差需收缩**：即便全市场 503 只，2 年日频对因子协方差 `F` 仍偏短 → 因子收益 `f` 的时序必须用 **Ledoit-Wolf 收缩**（见 §2.3 / 方法学修正）。
 
 ### 2.5 补数据行动项（明确 owner + 状态）
-把"字段太薄"从问题描述变成可追踪的动作：
-- [ ] **补充 PB / 账面价值 / EPS·ROE / 股息率**（价值与质量因子必需）—— owner：**Zeon**，deadline：Phase 0 后一周内，状态：未开始
-- [ ] **补充行业分类**（Barra 行业维度核心，也用于行业中性化）—— owner：**Kani**（风险侧需求方提出），deadline：同上，状态：未开始
-- [ ] 若无法补充，则在 `exposures_meta.json` 显式标注"因子覆盖 = size/value/momentum/lowvol，缺 quality/行业"，避免 Kani 误以为维度完整。
+- [ ] **扩样本区间**（把 `history_start` 往前，或 `PERIOD='M'` 降负载）—— owner：**Zeon**，deadline：Phase 2.5 前，状态：未开始
+- [ ] **（可选）补 Quality 字段** `RETURN_ON_EQUITY` / `RETURN_ON_ASSET` —— owner：**Zeon**，状态：未开始（不影响首版 10 因子）
+- [ ] 在 `exposures_meta.json` 显式标注因子覆盖与数据区间，避免 Kani 误判维度完整性。
 
 ### 3. 一句话回 Kani
-> "量够（44 万行 / 3–4 年 / 全市场截面）。但要支持你的 Barra 风险模型，需要做三件事：(1) 数据层保留**全市场**，别提前切成 10 只；(2) 确认能否补 `PB`、盈利、股息、行业分类这几个字段——没有的话质量/价值因子和 industries 维度建不全；(3) 全链路强制 point-in-time。协方差那边交给你时我会用 Ledoit-Wolf 收一下。"
+> "美股 `USE4` 模板字段齐全（市值/PB/盈利收益率/行业/成长/杠杆），point-in-time 内建，全市场 503 只——撑得起 Barra 风险模型，10 个因子直接能建。两个前提：(1) 样本仅 2024–2025 两年，回测偏薄，我会在 Phase 2.5 用 walk-forward + 样本外验证；(2) 数据靠 BBG 模板刷新，刷新不了就冻结在这区间。协方差交给你时我用 Ledoit-Wolf 收一下。"
 
 ---
 
@@ -80,18 +80,18 @@ r = X · f + ε
 ### 2.2.1 物理形态
 - 落地文件：`data/processed/exposures.parquet`
 - 索引：`MultiIndex([Date, Ticker])`，按 Date 升序
-- 列：每个因子一列，列名用 snake_case 因子名（如 `size`, `value`, `momentum`, `lowvol`）
-- Ticker 格式：统一 `XXXX HK Equity`
+- 列：每个因子一列，列名用 snake_case 因子名（见 §2.2.3，共 10 个：`size` / `value` / `earn_yld` / `momentum` / `volatility` / `beta` / `liquidity` / `growth_sales` / `growth_eps` / `leverage`）
+- Ticker 格式：统一 `XXXX US Equity`（如 `AAPL US Equity`）
 
 **一个具体的切片长这样**（注意：值是横截面 z-score，无量纲）：
 
-| Date | Ticker | size | value | momentum | lowvol |
-|---|---|---|---|---|---|
-| 2025-06-30 | 1 HK Equity | 0.42 | -0.31 | 1.10 | -0.55 |
-| 2025-06-30 | 5 HK Equity | -0.88 | 0.62 | -0.20 | 0.33 |
-| 2025-06-30 | 66 HK Equity | 1.95 | 0.11 | 0.05 | -0.10 |
-| … | … | … | … | … | … |
-| 2025-07-01 | 1 HK Equity | 0.40 | -0.29 | 1.08 | -0.53 |
+| Date | Ticker | size | value | earn_yld | momentum | volatility | beta | liquidity | growth_sales | growth_eps | leverage |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2025-06-30 | AAPL US Equity | 1.95 | 0.11 | 0.05 | 1.10 | -0.55 | 0.30 | 0.42 | 0.20 | 0.15 | -0.10 |
+| 2025-06-30 | MSFT US Equity | 1.80 | 0.05 | 0.04 | 0.95 | -0.40 | 0.25 | 0.38 | 0.18 | 0.12 | -0.08 |
+| 2025-06-30 | JPM US Equity | 1.20 | -0.20 | 0.09 | 0.60 | 0.10 | 0.80 | 0.25 | 0.05 | 0.10 | 0.30 |
+| … | … | … | … | … | … | … | … | … | … | … | … |
+| 2025-07-01 | AAPL US Equity | 1.93 | 0.10 | 0.05 | 1.08 | -0.53 | 0.29 | 0.41 | 0.19 | 0.14 | -0.10 |
 
 ### 2.2.2 每个值的计算规则（写进 `factors/pipeline.py`，两边都要信）
 1. **Winsorize**：每个因子在每个交易日做横截面截尾（2.5% / 97.5%），去掉极端值。
@@ -104,12 +104,18 @@ r = X · f + ε
 | 因子 | 原始输入 | point-in-time 处理 | 现在数据能否做 |
 |---|---|---|---|
 | `size` | `CUR_MKT_CAP` | 直接用 t 日市值（市值本身即时点） | ✅ 可做 |
-| `value` | `PE_RATIO` | 取 `shift(60)`（约 3 个月滞后），避免用未来盈利 | ✅ 可做（PE 版）；若补 `PB`/`EPS` 同理滞后 |
+| `value` | `PX_TO_BOOK_RATIO` | 取 descriptor 生效日期（财报期）≤ t 的值，无需 `shift(60)` | ✅ 可做（BP，point-in-time 内建） |
+| `earn_yld` | `EARN_YLD` | 同上，取生效日期 ≤ t | ✅ 可做（盈利收益率，point-in-time 内建） |
 | `momentum` | `PX_LAST` | 用 t 日及之前的价格算"12-1 月"收益率（不含 t 之后） | ✅ 可做（由价格派生） |
-| `lowvol` | `PX_LAST` | 用 t 日及之前的日收益算滚动波动率（如 60 日） | ✅ 可做（由价格派生） |
-| `quality` | 盈利/ROE | 需 point-in-time 盈利数据 | ❌ 缺数据，暂不做 |
+| `volatility` | `PX_LAST` | 用 t 日及之前的日收益算滚动波动率（如 60 日） | ✅ 可做（由价格派生） |
+| `beta` | `BETA_ADJ_OVERRIDABLE` | 直接用 descriptor（BBG 已时点对齐） | ✅ 可做 |
+| `liquidity` | `VOLUME` | 用 t 日及之前的成交量（或金额成交量） | ✅ 可做 |
+| `growth_sales` | `SALES_GROWTH` | 取生效日期 ≤ t 的财报成长值 | ✅ 可做（point-in-time 内建） |
+| `growth_eps` | `EPS_GROWTH` | 同上 | ✅ 可做（point-in-time 内建） |
+| `leverage` | `TOT_DEBT_TO_COM_EQY` | 取生效日期 ≤ t 的杠杆值 | ✅ 可做（point-in-time 内建） |
+| `quality` | ROE/ROA | 需 point-in-time 盈利数据 | ❌ 当前 Descriptor 无，暂缓（可补拉 `RETURN_ON_EQUITY`） |
 
-> **对 Kani 的含义**：现在能稳定交付 `size / value / momentum / lowvol` 四个因子。如果他要 `quality` 或行业维度，必须先补数据（见第一部分第 2 点）。
+> **对 Kani 的含义**：现在能稳定交付上表 10 个因子（价值家族含 `value`+`earn_yld` 两个子因子）。`quality` 因缺 ROE 暂不做；行业维度由 `Industries` 页提供，用于中性化而非进 X。每个因子进 X 前须过 §2.2.6 准入门槛。
 
 ### 2.2.4 NaN 与版本
 - 某股票某日因子为 NaN（如新股无足够历史算 momentum）：**Zeon 在 X 里留 NaN，不偷偷填 0**。
@@ -117,15 +123,26 @@ r = X · f + ε
 - 配套 `data/processed/exposures_meta.json`：
   ```json
   { "generated_at": "2026-07-23T00:30:00", "as_of_max": "2025-12-31",
-    "factors": ["size","value","momentum","lowvol"], "universe_size": 320 }
+    "factors": ["size","value","earn_yld","momentum","volatility","beta","liquidity","growth_sales","growth_eps","leverage"], "universe_size": 503 }
   ```
   这样 Kani 一眼知道这份 X 覆盖了哪些因子、到哪天、多少只股票。
 
 ### 2.2.5 Point-in-time 验证（防前视泄漏）
 X 里每个值都声明了"只用 ≤t 的信息"，但声明不等于真的没有泄漏，必须验证：
-- **信息流向检验**：对每个因子，构造"用 t 日因子预测 t+1 日收益"的 IC；若改用 t+1 日才可得的信息（如未滞后的 PE）IC 显著更高，说明原处理有泄漏。
-- **滞后对齐检验**：对 `shift(60)` 类代理（如 value），抽样核对是否与对应公告日逻辑一致；无法拿到真·point-in-time 基本面时，至少验证 60 天滞后未引入未来盈利。
+- **信息流向检验**：对每个因子，构造"用 t 日因子预测 t+1 日收益"的 IC；若改用 t+1 日才可得的信息 IC 显著更高，说明原处理有泄漏。
+- **生效日期对齐检验**：对带财报期的 descriptor（`value`/`earn_yld`/`growth_*`/`leverage`），抽样核对其生效日期 ≤ t，确认无未来信息泄漏（美股模板已内建，验证即可，无需再 `shift(60)`）。
 - **结论写进 meta**：通过 / 近似通过（标注代理方式）/ 不通过（该因子暂不进 X）。
+
+### 2.2.6 因子准入门槛（防 K 过大 + 防共线）⚠️ 重要
+进 X 的每一列都必须二选一成立，否则不进 B：
+1. **有清晰经济含义**（本方案 10 因子全部映射到 Barra 风格家族：Size / Value / Momentum / Volatility / Beta / Liquidity / Growth / Leverage，满足）；**且**
+2. **通过统计显著性**：用 **Fama-MacBeth**（§28，风险溢价存在性，比截面 IC 更硬）或至少 Newey-West t 的 IC 检验，要求 `|t| > 2`。
+
+具体处置：
+- **相关因子对正交化（§15.4）**：`value`↔`earn_yld`（同属价值）、`growth_sales`↔`growth_eps`（同属成长）、`volatility`↔`beta`（同测风险）、`size`↔`liquidity`（小盘常低流动）存在中等相关。进 X 前对相关性超阈值（两两 `|ρ| > 0.7`）的因子对做正交化（对被解释因子回归取残差），隔离重叠维度；证明无独立溢价的子因子直接砍。
+- **K 上限 + Δ 对角（防 T<N 塌方）**：因子数 `K` 设上限 **≤ 15**（当前 T≈500 交易日，K 逼近 50+ 才需 PCA §9）；协方差分解 `Σ = X·F·Xᵀ + D` 中 **`D` 必须只估对角**（每只股票残差方差），**禁止估全 N×N 残差协方差**——因子模型本身就是 T<N 的解药，塌方只来自错误实现。因子协方差 `F`（K×K）用 Ledoit-Wolf（§10）/ EWMA（§24）收缩作为后手保险。
+
+*括号中的 § 编号对应 Zeon 的方法论文档：§9=PCA 降维 / §10=Ledoit-Wolf 收缩 / §15.4=正交化 / §24=EWMA / §28=Fama-MacBeth。*
 
 ---
 
@@ -213,11 +230,11 @@ print(w[w > 0.01].round(4))
 ### Phase 0 —— 对齐契约（30 分钟会议，第 1 天）
 **目标：把 2.2 的 X 契约拍板，写入本文档即生效。**
 会议必须产出以下决定，缺一个不开写：
-- [ ] X 的列名清单（先定 `size/value/momentum/lowvol`，quality 待定）
+- [ ] X 的列名清单（定 10 因子：`size`/`value`/`earn_yld`/`momentum`/`volatility`/`beta`/`liquidity`/`growth_sales`/`growth_eps`/`leverage`；`quality` 待补 ROE 后加）
 - [ ] z-score / winsorize 参数（默认 2.5%/97.5%）
 - [ ] NaN 处理规则（Kani 侧按日截面丢弃；备选：缺失因子用行业均值软填充，避免大范围丢股票，需在 meta 标注采用哪种）
 - [ ] `as_of` 约定（用数据最新日；回测时由调用方传入）
-- [ ] 股票池定义（全市场 / 恒生综指，写进 `config.py`，**不**硬编码 10 只）
+- [ ] 股票池定义（`SPX Index`，503 只，写进 `config.py`，**不**硬编码子集）
 - [ ] 因子相关性 / 冗余上限（如两两 |ρ| < 0.7，超出则砍 / 合并，避免 B 共线）
 - [ ] 行业中性化约定（是否在 z-score 前对行业哑变量回归取残差；暂无行业数据则跳过并标注）
 - [ ] 补数据 action：PB / 盈利(EPS·ROE) / 股息率 / 行业分类的 owner 与 deadline
@@ -225,7 +242,7 @@ print(w[w > 0.01].round(4))
 ### Phase 1 —— Zeon：数据 + 因子 + 验证（约 1 周）
 交付物：
 1. `data/loaders.py` + `data/schema.py`（标准面板，替代 notebook Cell 2–7）
-2. `factors/base.py` + `size/value/momentum/lowvol.py`
+2. `factors/base.py` + 各因子文件（`size.py` / `value.py` / `earn_yld.py` / `momentum.py` / `volatility.py` / `beta.py` / `liquidity.py` / `growth_sales.py` / `growth_eps.py` / `leverage.py`）
 3. `factors/pipeline.py` 的 `get_exposures(as_of)`
 4. **`validate_factors.py`**：每个因子输出 IC、IR、Newey-West t 值表
 5. `tests/test_factors.py`
@@ -303,5 +320,5 @@ print(w[w > 0.01].round(4))
 ## 2.8 给 Kani 的协调话术（直接发）
 
 > "我按你说的把代码 `.py` 化、按 data/factors/risk 拆目录了。我们俩的唯一交接面是**因子暴露矩阵 X**（[Date,Ticker] 索引、横截面 z-score、point-in-time），我负责产出、你负责吃进 Barra。
-> 开始前先对一下 X 的列（你要哪几个因子）和格式，我把 `get_exposures(as_of)` 定好就先写因子 + IC/IR 验证。
-> 数据那边有个前提：原始 44 万行量够，但字段只有价/市值/PE/量，撑不起完整 Barra——尤其缺行业分类和 PB/盈利。要不要先确认能不能补这几个字段？另外优化器现在硬编码 10 只手选股，我建议数据层保留全市场、10 只交给组合层决定，不然风险模型样本太小。"
+> 数据我换成 Bloomberg `USE4` 美股模板（SPX 503 只，2024–2025）：字段齐全（市值/PB/盈利收益率/行业/成长/杠杆），point-in-time 内建，10 个因子直接能建，不用再补拉。两个前提你知悉：(1) 样本仅两年，回测偏薄，我会在 Phase 2.5 用 walk-forward + 样本外验证；(2) 数据靠 BBG 模板刷新，刷新不了就冻结在这区间。
+> 开始前先对一下 X 的列（我拟了 10 个：size/value/earn_yld/momentum/volatility/beta/liquidity/growth_sales/growth_eps/leverage）和格式，我把 `get_exposures(as_of)` 定好就先写因子 + Fama-MacBeth / IC-IR 验证。股票池用全市场 503 只，不提前切子集。"
