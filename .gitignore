@@ -1,2 +1,4 @@
 Data/Raw/us_market_raw.xlsx
-*pycache*/
+Data/Processed/*.parquet
+Data/Processed/exposures_meta.json
+*pycache__/
