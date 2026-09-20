@@ -1,0 +1,26 @@
+# AlphaStream 依赖清单
+#
+# 背景：此前仓库没有 requirements.txt，环境差异会直接改变复现结果
+# （例如 risk/ 依赖 scikit-learn，但本地 venv 里没有装）。
+# 安装： python -m venv venv && venv/bin/pip install -r requirements.txt
+
+# --- 核心研究链路（factors/ + risk/） ---------------------------------------
+numpy==2.4.5
+pandas==3.0.3
+pyarrow==24.0.0
+scipy==1.17.1
+scikit-learn==1.9.1
+
+# --- 报表 / 遗留网页层（Src/） ----------------------------------------------
+matplotlib==3.10.9
+openpyxl==3.1.5
+fastapi==0.136.1
+uvicorn==0.47.0
+schedule==1.2.2
+jinja2==3.1.6
+
+# --- 可选：自动加载 Src/.env（不装则需自行 export 环境变量） -----------------
+python-dotenv>=1.0
+
+# --- 测试 -------------------------------------------------------------------
+pytest>=8.0

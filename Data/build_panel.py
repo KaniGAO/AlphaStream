@@ -25,14 +25,28 @@ Column contract (per factors/base.py Factor.required_columns):
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
 
 # --- Source data (read-only reference, configurable) -------------------------
-BARRA_ROOT = Path(
-    "/Users/gaokanglin/Project/bbg_project/barra_research/markets/us/data"
+# The barra_research tree has moved between machines and folders
+# (Project/bbg_project -> Project/1/bbg_project), so the location is resolved at
+# import time rather than hardcoded:
+#   1. the BARRA_ROOT environment variable wins when set;
+#   2. otherwise the first existing candidate directory is used.
+# Override with:  export BARRA_ROOT=/path/to/barra_research/markets/us/data
+BARRA_ROOT_CANDIDATES = (
+    Path("~/Project/1/bbg_project/barra_research/markets/us/data").expanduser(),
+    Path("~/Project/bbg_project/barra_research/markets/us/data").expanduser(),
 )
+
+BARRA_ROOT = Path(
+    os.environ.get("BARRA_ROOT") or next(
+        (p for p in BARRA_ROOT_CANDIDATES if p.is_dir()), BARRA_ROOT_CANDIDATES[0]
+    )
+).expanduser()
 
 PRICES_PATH = BARRA_ROOT / "prices.parquet"
 RETURNS_PATH = BARRA_ROOT / "returns.parquet"
