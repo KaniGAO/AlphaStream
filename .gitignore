@@ -9,3 +9,6 @@ __pycache__/
 .env
 Src/.env
 .env.local
+
+# 本地实验产物（scripts/run_risk_pipeline.py 的输出，可由代码重算）
+runs/
