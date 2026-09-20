@@ -9,7 +9,7 @@ from pathlib import Path
 import uvicorn
 
 # 导入报告类
-from report_automator import AlphaStreamReporter
+from report_automator import AlphaStreamReporter, require_env
 import pandas as pd
 
 app = FastAPI(title="AlphaStream", description="Alpha 因子研究与报告系统")
@@ -40,10 +40,10 @@ def heavy_quant_pipeline_worker(email: str):
         "66 HK Equity": 0.12
     })
     
-    # 2. 生成报表和图表
+    # 2. 生成报表和图表（凭据只从环境变量读取，绝不写进源码）
     reporter = AlphaStreamReporter(
-        sender_email="gaokanglin6@gmail.com",
-        sender_password="habu rqjh ffnk dqld"
+        sender_email=require_env("GMAIL_USER"),
+        sender_password=require_env("GMAIL_APP_PASSWORD"),
     )
     excel_file = reporter.generate_excel(mock_weights)
     chart_bytes = reporter.generate_chart_buffer(mock_weights)

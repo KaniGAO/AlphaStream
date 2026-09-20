@@ -1,4 +1,11 @@
 Data/Raw/us_market_raw.xlsx
 Data/Processed/*.parquet
 Data/Processed/exposures_meta.json
-*pycache__/
+
+# Python 缓存（原写法 *pycache__/ 少一个下划线，实际没生效）
+__pycache__/
+
+# 凭据与本地配置：绝不提交。模板见 Src/.env.example
+.env
+Src/.env
+.env.local

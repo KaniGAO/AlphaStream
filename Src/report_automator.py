@@ -3,6 +3,9 @@ AlphaStream - Report Automation Module
 Handles scheduled jobs, Excel generation, and email delivery
 """
 
+import os
+from pathlib import Path
+
 import pandas as pd
 import smtplib
 import base64
@@ -16,6 +19,37 @@ import matplotlib.pyplot as plt
 import io
 import schedule
 import time
+
+
+# ===============================================
+# Credentials: never hardcode them in source
+# ===============================================
+
+_SRC_DIR = Path(__file__).resolve().parent
+
+
+def _load_local_env() -> None:
+    """Load Src/.env when python-dotenv is installed (optional dependency)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(_SRC_DIR / ".env")
+
+
+def require_env(name: str) -> str:
+    """Return a required environment variable, or fail with setup guidance."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"Missing environment variable {name!r}. Put it in Src/.env "
+            f"(template: Src/.env.example) or export it before running. "
+            f"Never commit credentials to the repository."
+        )
+    return value
+
+
+_load_local_env()
 
 
 class AlphaStreamReporter:
@@ -153,10 +187,10 @@ def daily_batch_job():
         "363 HK Equity": 0.15
     })
 
-    # 2. Instantiate reporter
+    # 2. Instantiate reporter (credentials come from the environment, never source)
     reporter = AlphaStreamReporter(
-        sender_email="gaokanglin6@gmail.com",
-        sender_password="habu rqjh ffnk dqld"
+        sender_email=require_env("GMAIL_USER"),
+        sender_password=require_env("GMAIL_APP_PASSWORD"),
     )
 
     # 3. Generate Excel report and chart
