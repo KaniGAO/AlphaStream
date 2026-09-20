@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlphaStream Workbench · 风险模型观测台</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>AlphaStream <span>Workbench</span></h1>
+    <p class="tagline">风险模型观测台 —— 不展示结论，只展示结论是怎么来的、以及能不能信</p>
+  </div>
+  <div class="run-picker">
+    <label for="run-select">当前 Run</label>
+    <select id="run-select"></select>
+    <button id="refresh" class="ghost">刷新</button>
+  </div>
+</header>
+
+<section id="badges" class="badges"></section>
+
+<nav class="tabs">
+  <button data-tab="runs" class="active">Runs</button>
+  <button data-tab="calibration">Calibration</button>
+  <button data-tab="risk">Risk</button>
+  <button data-tab="compare">Compare</button>
+</nav>
+
+<main>
+
+  <!-- ============================ RUNS ============================ -->
+  <section id="tab-runs" class="tab-panel active">
+    <div class="grid two">
+      <div class="card">
+        <h2>新建 Run</h2>
+        <form id="run-form">
+          <div class="field"><label>window（滚动已实现波动窗口）</label>
+            <input name="window" type="number" value="60" min="5" max="500"></div>
+          <div class="field"><label>min_history（前 N 天不检验）</label>
+            <input name="min_history" type="number" value="120" min="0" max="2000"></div>
+          <div class="field"><label>特异方差 D</label>
+            <select name="specific_shrinkage">
+              <option value="none">none（不收缩）</option>
+              <option value="diagonal">diagonal（向截面均值收缩）</option>
+            </select></div>
+          <div class="field"><label>因子协方差 F</label>
+            <select name="factor_shrinkage">
+              <option value="ledoit-wolf">ledoit-wolf</option>
+              <option value="sample">sample</option>
+            </select></div>
+          <div class="field"><label>X 文件（可选）</label>
+            <input name="exposures" placeholder="默认 Data/Processed/exposures.parquet"></div>
+          <div class="field"><label>收益文件（可选）</label>
+            <input name="returns" placeholder="默认 barra returns.parquet（总收益指数 tr）"></div>
+          <div class="field"><label>标签</label>
+            <input name="label" placeholder="例如：基准复现 / 价格收益对照"></div>
+          <button type="submit" id="run-submit">开始运行</button>
+        </form>
+        <p class="hint">网页触发的就是 <code>scripts/run_risk_pipeline.py</code> 本身——浏览器跑和终端跑是同一条实现。</p>
+      </div>
+
+      <div class="card">
+        <h2>Run 列表 <span class="muted" id="runs-count"></span></h2>
+        <div class="table-wrap"><table id="runs-table">
+          <thead><tr>
+            <th>Run</th><th>状态</th><th>rel-error 中位数</th><th>可用日</th><th>参数</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </div>
+    <div class="card" id="run-detail"><p class="muted">选择一个 Run 查看它的 manifest。</p></div>
+  </section>
+
+  <!-- ========================= CALIBRATION ========================= -->
+  <section id="tab-calibration" class="tab-panel">
+    <div class="tiles" id="cal-tiles"></div>
+    <div class="card">
+      <h2>相对误差时序</h2>
+      <p class="sub">每个点是当日截面「模型波动率 vs 已实现波动率」的相对误差均值；实线是 20 日滚动中位数。</p>
+      <div id="cal-series" class="chart"></div>
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <h2>误差分布</h2>
+        <div id="cal-hist" class="chart short"></div>
+      </div>
+      <div class="card">
+        <h2>分季度中位数</h2>
+        <p class="sub">用来判断误差是「稳定偏高」还是「集中在某段行情」。</p>
+        <div id="cal-quarter" class="chart short"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>模型波动率 vs 已实现波动率（截面均值）</h2>
+      <p class="sub">两点越贴合虚线越准；系统性偏离说明模型整体高估或低估风险。</p>
+      <div id="cal-vs" class="chart"></div>
+    </div>
+  </section>
+
+  <!-- ============================ RISK ============================ -->
+  <section id="tab-risk" class="tab-panel">
+    <div class="card">
+      <div class="row">
+        <h2>组合透视</h2>
+        <div class="spacer"></div>
+        <label class="inline">权重方案
+          <select id="scheme-select">
+            <option value="equal">等权 1/N</option>
+            <option value="inverse_vol">逆波动率加权</option>
+            <option value="min_variance">最小方差</option>
+          </select>
+        </label>
+      </div>
+      <div class="tiles" id="risk-tiles"></div>
+    </div>
+    <div class="grid two">
+      <div class="card">
+        <h2>因子暴露 X′w</h2>
+        <div id="risk-exposure" class="chart"></div>
+      </div>
+      <div class="card">
+        <h2>因子风险贡献</h2>
+        <p class="sub">b = X′w，第 k 个因子的方差贡献是 b<sub>k</sub>·(Fb)<sub>k</sub>，合计等于因子方差。</p>
+        <div id="risk-contrib" class="chart"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>权重方案对比</h2>
+      <p class="sub">三种方案在同一份 Σ 下的表现。差距越大，说明优化越依赖协方差估计的质量。</p>
+      <div class="table-wrap"><table id="scheme-table">
+        <thead><tr><th>方案</th><th>年化波动</th><th>有效持仓数 1/Σw²</th><th>最大权重</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h2>个股模型波动率分布</h2>
+      <div id="risk-voldist" class="chart short"></div>
+    </div>
+  </section>
+
+  <!-- =========================== COMPARE =========================== -->
+  <section id="tab-compare" class="tab-panel">
+    <div class="card">
+      <div class="row">
+        <label class="inline">A <select id="compare-left"></select></label>
+        <label class="inline">B <select id="compare-right"></select></label>
+        <div class="spacer"></div>
+        <button id="compare-run">对账</button>
+      </div>
+      <p class="hint">把两次 run 的参数、输入指纹、形状、检查项与检验指标逐项并排放，并叠加两者的误差序列。</p>
+    </div>
+    <div id="compare-result"></div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
